@@ -11,7 +11,4 @@ pkgs.clangStdenv.mkDerivation {
     zlib
     openssl.dev
   ];
-  "CMAKE_GENERATOR" = "Ninja";
-  "CC" = "clang";
-  "CXX" = "clang++";
 }

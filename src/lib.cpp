@@ -66,7 +66,7 @@ class written {
  public:
   virtual ~written() {};
   virtual const void *get() const = 0;
-  virtual bool try_lock() = 0;
+  virtual std::optional<version_t> try_lock() = 0;
   virtual bool try_set(version_t write_version) && = 0;
 
  protected:
@@ -79,9 +79,9 @@ class written_t final : public written {
  public:
   written_t(T &&val, transaction_t<T, Context> &to_set) : t(std::forward<T>(val)), to_set(to_set) {}
   const void *get() const { return &t; }
-  bool try_lock() {
+  std::optional<version_t> try_lock() {
     lock = std::move(to_set.try_lock());
-    return lock.has_value();
+    return lock.transform([](auto &lock) { return lock.getVersion(); });
   }
   bool try_set(version_t write_version) && {
     if (lock.has_value()) {
@@ -128,33 +128,52 @@ class transaction {
 template <typename T, long long N>
 template <std::invocable F>
 auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
-  transaction<T, N> alloc;
   typename std::invoke_result<F>::type result;
-  thread_transaction = &alloc;
-  do {
-    alloc.failed = false;
-    result = f();
-    if (!alloc.failed) {
-      for (auto &written : alloc.write_map | std::views::values) {
-        if (!written->try_lock()) {
-          continue;
+
+  if (!thread_transaction) {
+    do {
+    retry:
+      transaction<T, N> alloc;
+      thread_transaction = &alloc;
+      alloc.failed = false;
+      result = f();
+      std::unordered_map<tval *, version_t> owned_versions;
+      if (!alloc.failed) {
+        for (auto &[key, written] : alloc.write_map) {
+          auto maybe_version = written->try_lock();
+          if (!maybe_version) {
+            goto retry;
+          }
+          owned_versions.insert_or_assign(key, maybe_version.value());
         }
-      }
-      for (auto &read : alloc.read_set) {
-        if (!check_tval_version(*read, alloc.read_version)) {
-          continue;
+        for (auto &read : alloc.read_set) {
+          auto [first, last] = owned_versions.equal_range(read);
+          auto view = std::ranges::subrange(first, last);
+          auto maybe_owned = std::ranges::empty(view)
+                                 ? std::nullopt
+                                 : std::optional((view | std::views::values).front());
+          if (!maybe_owned
+                   .transform([&alloc](auto &version) { return version <= alloc.read_version; })
+                   .value_or(check_tval_version(*read, alloc.read_version))) {
+            goto retry;
+          }
         }
       }
       auto write_version =
           std::atomic_fetch_add_explicit(&global_version, 1, std::memory_order::acq_rel);
       for (auto &written : alloc.write_map | std::views::values) {
         if (!std::move(*written).try_set(write_version)) {
-          continue;
+          goto retry;
         }
       }
-    }
-  } while (alloc.failed);
-  thread_transaction = nullptr;
+      if (!alloc.failed) {
+        break;
+      }
+    } while (true);
+    thread_transaction = nullptr;
+  } else {
+    result = f();
+  }
   return result;
 }
 
@@ -163,6 +182,7 @@ class transaction_t final : public tval {
  public:
   class transaction_lock final {
    public:
+    version_t getVersion() const { return version; }
     transaction_lock(transaction_lock &other) = delete;
     transaction_lock(transaction_lock &&other)
         : is_locked(other.is_locked), locked(other.locked), version(other.version) {
