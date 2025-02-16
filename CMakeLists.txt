@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.30)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(cppstm VERSION 1.0 LANGUAGES CXX)
-include(FetchContent)
 
 set(CMAKE_CXX_STANDARD 23)
 # set(CMAKE_CXX_SCAN_FOR_MODULES)
@@ -20,3 +19,5 @@ target_link_libraries(lib atomic)
 
 target_link_libraries(cppstm lib)
 # Print all targets defined in the project
+# adds test target
+add_subdirectory(./test EXCLUDE_FROM_ALL)

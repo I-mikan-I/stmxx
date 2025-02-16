@@ -12,5 +12,22 @@
       },
       "binaryDir": "./build"
     }
+  ],
+  "buildPresets": [
+    {
+      "name": "test",
+      "configurePreset": "clang",
+      "configuration": "Debug",
+      "targets": ["tests"]
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "default",
+      "steps": [
+        {"type": "configure", "name": "clang"},
+        {"type": "build", "name": "test"}
+      ]
+    }
   ]
 }

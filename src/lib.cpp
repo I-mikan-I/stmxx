@@ -131,8 +131,8 @@ auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
   typename std::invoke_result<F>::type result;
 
   if (!thread_transaction) {
+  retry:
     do {
-    retry:
       transaction<T, N> alloc;
       thread_transaction = &alloc;
       alloc.failed = false;
@@ -158,12 +158,13 @@ auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
             goto retry;
           }
         }
-      }
-      auto write_version =
-          std::atomic_fetch_add_explicit(&global_version, 1, std::memory_order::acq_rel);
-      for (auto &written : alloc.write_map | std::views::values) {
-        if (!std::move(*written).try_set(write_version)) {
-          goto retry;
+        auto write_version =
+            std::atomic_fetch_add_explicit(&global_version, 1, std::memory_order::acq_rel) + 1;
+        for (auto &written : alloc.write_map | std::views::values) {
+          if (!std::move(*written).try_set(write_version)) {
+            assert(false);
+            goto retry;
+          }
         }
       }
       if (!alloc.failed) {
