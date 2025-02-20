@@ -8,25 +8,46 @@
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_C_COMPILER": "clang"
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_BUILD_TYPE" : "Debug",
+        "SANITIZE" : "FALSE"
       },
       "binaryDir": "./build"
+    },
+    {
+      "name": "sanitize",
+      "inherits": ["clang"],
+      "cacheVariables": {
+        "SANITIZE" : "TRUE"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "test",
-      "configurePreset": "clang",
       "configuration": "Debug",
+      "configurePreset": "clang",
       "targets": ["tests"]
+    },
+    {
+      "name": "test-sanitize",
+      "inherits": ["test"],
+      "configurePreset": "sanitize"
     }
   ],
   "workflowPresets": [
     {
-      "name": "default",
+      "name": "test-unit",
       "steps": [
         {"type": "configure", "name": "clang"},
         {"type": "build", "name": "test"}
+      ]
+    },
+    {
+      "name": "test-sanitize",
+      "steps": [
+        {"type": "configure", "name": "sanitize"},
+        {"type": "build", "name": "test-sanitize"}
       ]
     }
   ]

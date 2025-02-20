@@ -13,11 +13,12 @@ add_compile_options(-fcolor-diagnostics)
 
 add_library(lib)
 target_sources(lib PUBLIC FILE_SET CXX_MODULES FILES ./src/lib.cpp)
-add_executable(cppstm)
-target_sources(cppstm PUBLIC FILE_SET CXX_MODULES FILES ./src/main.cpp)
+# add_executable(main)
+# target_sources(main PUBLIC FILE_SET CXX_MODULES FILES ./src/main.cpp)
 target_link_libraries(lib atomic)
+target_compile_options(lib PRIVATE -O1 -g)
 
-target_link_libraries(cppstm lib)
+# target_link_libraries(main lib)
 # Print all targets defined in the project
 # adds test target
 add_subdirectory(./test EXCLUDE_FROM_ALL)

@@ -72,7 +72,8 @@ class written {
  protected:
   written() {}
 };
-export template <typename T, Transaction Context>
+
+export template <std::copyable T, Transaction Context>
 class transaction_t;
 template <typename T, Transaction Context>
 class written_t final : public written {
@@ -112,7 +113,7 @@ class transaction {
  private:
   using unique_identifier = unique_to_module;
   transaction() : read_version(global_version.load(std::memory_order_acquire)) {};
-  template <typename K, Transaction M>
+  template <std::copyable K, Transaction M>
   friend class transaction_t;
   friend transaction_friend<transaction<T, N>>;
 
@@ -139,6 +140,7 @@ auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
       result = f();
       std::unordered_map<tval *, version_t> owned_versions;
       if (!alloc.failed) {
+        // lock all written values
         for (auto &[key, written] : alloc.write_map) {
           auto maybe_version = written->try_lock();
           if (!maybe_version) {
@@ -146,6 +148,7 @@ auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
           }
           owned_versions.insert_or_assign(key, maybe_version.value());
         }
+        // check if read set is current
         for (auto &read : alloc.read_set) {
           auto [first, last] = owned_versions.equal_range(read);
           auto view = std::ranges::subrange(first, last);
@@ -158,8 +161,10 @@ auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
             goto retry;
           }
         }
+        // update write version
         auto write_version =
             std::atomic_fetch_add_explicit(&global_version, 1, std::memory_order::acq_rel) + 1;
+        // update written values and unlock
         for (auto &written : alloc.write_map | std::views::values) {
           if (!std::move(*written).try_set(write_version)) {
             assert(false);
@@ -178,7 +183,7 @@ auto transaction<T, N>::start(F &&f) -> std::invoke_result<F>::type {
   return result;
 }
 
-export template <typename T, Transaction Context>
+export template <std::copyable T, Transaction Context>
 class transaction_t final : public tval {
  public:
   class transaction_lock final {
@@ -229,12 +234,39 @@ class transaction_t final : public tval {
 
   void operator=(transaction_t<T, Context> &other) = delete;
 
-  const T *read() const {
+  const std::optional<T> operator*() const {
     if (Context::thread_transaction) {
       return get_val(Context::thread_transaction->read_version);
     } else {
-      return &t;
+      return t;
     }
+  }
+
+  template <typename S>
+    requires(!std::is_member_function_pointer_v<S>)
+  using MemberPtrTo = std::remove_reference_t<decltype(std::declval<T *>()->*std::declval<S>())>;
+
+  template <typename S>
+    requires(!std::is_member_function_pointer_v<S>) && (!std::is_pointer_v<MemberPtrTo<S>>) &&
+            (!std::is_lvalue_reference_v<MemberPtrTo<S>>)
+  const std::optional<MemberPtrTo<S>> operator->*(S objptr) const {
+    if (Context::thread_transaction) {
+      return get_member(objptr, Context::thread_transaction->read_version);
+    } else {
+      return t.*objptr;
+    }
+  }
+
+  template <typename S, typename... Args>
+    requires(std::is_member_function_pointer_v<S>)
+  auto operator->*(S objptr) const {
+    return [&, objptr](Args... args) {
+      if (Context::thread_transaction) {
+        return call_accessor(Context::thread_transaction->read_version, objptr, args...);
+      } else {
+        return std::optional((t.*objptr)(args...));
+      }
+    };
   }
 
   template <typename U>
@@ -253,28 +285,6 @@ class transaction_t final : public tval {
  private:
   static constexpr void _static_checks() noexcept;
 
-  const T *get_val(version_t read_version) const {
-    assert(Context::thread_transaction);
-    if (_check_version(read_version) && !Context::thread_transaction->failed) {
-      Context::thread_transaction->read_set.insert(
-          const_cast<transaction_t<T, Context> *const>(this));
-      auto non_committed_val = Context::thread_transaction->write_map.find(
-          const_cast<transaction_t<T, Context> *>(this));
-      return non_committed_val != Context::thread_transaction->write_map.end()
-                 ? static_cast<const T *>(non_committed_val->second->get())
-                 : &t;
-    } else {
-      Context::thread_transaction->failed = true;
-      return nullptr;
-    }
-  }
-
-  friend written_t<T, Context>;
-  void set_val(T &&val, version_t write_version, transaction_lock lock) {
-    t = std::forward<T>(val);
-    lock.set_version(write_version);
-  }
-
   std::optional<transaction_lock> try_lock() {
     assert(Context::thread_transaction);
     std::optional<version_t> ver = version.exchange(std::nullopt);
@@ -284,6 +294,69 @@ class transaction_t final : public tval {
       Context::thread_transaction->failed = true;
     }
     return res;
+  }
+
+  const T *_get_ptr_in_transaction() const {
+    assert(Context::thread_transaction);
+    auto non_committed_val =
+        Context::thread_transaction->write_map.find(const_cast<transaction_t *>(this));
+    return non_committed_val != Context::thread_transaction->write_map.end()
+               ? static_cast<const T *>(non_committed_val->second->get())
+               : &t;
+  }
+
+  template <typename V, typename Fn>
+    requires std::is_invocable_r<V, Fn, T *>::value
+  const std::optional<V> issue_read_op(Fn accessor, version_t read_version) const {
+    assert(Context::thread_transaction);
+    // check read_version twice: first check for memory order acquire. second read_version for
+    // consistency guarantee. data race is possible, but any data race must also update read
+    // version, making the second test fail.
+    if (!Context::thread_transaction->failed && _check_version(read_version)) {
+// don't register data race by thread sanitizer
+#if THREAD_SANITIZER
+      std::optional<transaction_lock> lock;
+      lock = ((transaction_t *)this)->try_lock();
+      if (!lock) {
+        return std::nullopt;
+      }
+#endif
+      std::optional<V> result = accessor(_get_ptr_in_transaction());
+#if THREAD_SANITIZER
+      if (lock->getVersion() <= read_version) {
+#else
+      if (_check_version(read_version)) {
+#endif
+        Context::thread_transaction->read_set.insert(
+            const_cast<transaction_t<T, Context> *const>(this));
+        return result;
+      }
+    }
+    Context::thread_transaction->failed = true;
+    return std::nullopt;
+  }
+
+  template <typename S>
+    requires(!std::is_member_function_pointer_v<S>) && (!std::is_pointer_v<MemberPtrTo<S>>) &&
+            (!std::is_lvalue_reference_v<MemberPtrTo<S>>)
+  const std::optional<MemberPtrTo<S>> get_member(S objptr, version_t read_version) const {
+    return issue_read_op<MemberPtrTo<S>>([&](const T *ptr) { return ptr->*objptr; }, read_version);
+  }
+
+  const std::optional<T> get_val(version_t read_version) const {
+    return issue_read_op<T>([&](const T *ptr) { return *ptr; }, read_version);
+  }
+
+  template <typename S, typename... Args>
+  const auto call_accessor(version_t read_version, S objptr, Args... args) const {
+    return issue_read_op<decltype((std::declval<const T *>()->*objptr)(args...))>(
+        [&](const T *ptr) { return (ptr->*objptr)(args...); }, read_version);
+  }
+
+  friend written_t<T, Context>;
+  void set_val(T &&val, version_t write_version, transaction_lock lock) {
+    t = std::forward<T>(val);
+    lock.set_version(write_version);
   }
 
   T t;
@@ -309,7 +382,7 @@ concept lockCopyable = requires(M t) {
                                  std::declval<transaction_t<long, T>::transaction_lock &>());
 };
 }  // namespace static_checks
-template <typename T, Transaction Context>
+template <std::copyable T, Transaction Context>
 constexpr void transaction_t<T, Context>::_static_checks() noexcept {
   using namespace static_checks;
   static_assert(requires {
