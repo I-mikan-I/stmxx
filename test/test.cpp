@@ -7,7 +7,7 @@ module;
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
 export module Test;
-import Lib;
+import STMCXX;
 using namespace std::chrono_literals;
 
 #if THREAD_SANITIZER
@@ -28,7 +28,8 @@ TEST_CASE("Single Threaded basic case.") {
   REQUIRE(*tval == 5);
   T::start([&] {
     auto val = *tval;
-    REQUIRE((val && *val == 5));
+    REQUIRE(val);
+    REQUIRE(*val == 5);
     modify_tval(&tval, 100LLU);
     val = *tval;
     REQUIRE((val && *val == 100));

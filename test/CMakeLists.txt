@@ -13,7 +13,7 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(tests)
 target_sources(tests PRIVATE FILE_SET CXX_MODULES FILES ./test.cpp)
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain lib)
-target_compile_options(tests PRIVATE -O1 -g)
+target_compile_options(tests PRIVATE -Og -g)
 
 if(SANITIZE)
 target_compile_definitions(lib PRIVATE THREAD_SANITIZER=1)
