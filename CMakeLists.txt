@@ -21,7 +21,7 @@ target_sources(lib PUBLIC FILE_SET CXX_MODULES FILES
 # add_executable(main)
 # target_sources(main PUBLIC FILE_SET CXX_MODULES FILES ./src/main.cpp)
 target_link_libraries(lib atomic)
-target_compile_options(lib PRIVATE -Og -g)
+target_compile_options(lib PRIVATE -O1 -g)
 
 # target_link_libraries(main lib)
 # Print all targets defined in the project

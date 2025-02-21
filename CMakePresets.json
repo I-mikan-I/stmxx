@@ -10,15 +10,23 @@
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_BUILD_TYPE" : "Debug",
-        "SANITIZE" : "FALSE"
+        "SANITIZE_THREAD" : "FALSE",
+        "SANITIZE_ADDRESS" : "FALSE"
       },
       "binaryDir": "./build"
     },
     {
-      "name": "sanitize",
+      "name": "sanitize-thread",
       "inherits": ["clang"],
       "cacheVariables": {
-        "SANITIZE" : "TRUE"
+        "SANITIZE_THREAD" : "TRUE"
+      }
+    },
+    {
+      "name": "sanitize-address",
+      "inherits": ["clang"],
+      "cacheVariables": {
+        "SANITIZE_ADDRESS" : "TRUE"
       }
     }
   ],
@@ -30,9 +38,14 @@
       "targets": ["tests"]
     },
     {
-      "name": "test-sanitize",
+      "name": "test-sanitize-thread",
       "inherits": ["test"],
-      "configurePreset": "sanitize"
+      "configurePreset": "sanitize-thread"
+    },
+    {
+      "name": "test-sanitize-address",
+      "inherits": ["test"],
+      "configurePreset": "sanitize-address"
     }
   ],
   "workflowPresets": [
@@ -44,10 +57,17 @@
       ]
     },
     {
-      "name": "test-sanitize",
+      "name": "test-sanitize-thread",
       "steps": [
-        {"type": "configure", "name": "sanitize"},
-        {"type": "build", "name": "test-sanitize"}
+        {"type": "configure", "name": "sanitize-thread"},
+        {"type": "build", "name": "test-sanitize-thread"}
+      ]
+    },
+    {
+      "name": "test-sanitize-address",
+      "steps": [
+        {"type": "configure", "name": "sanitize-address"},
+        {"type": "build", "name": "test-sanitize-address"}
       ]
     }
   ]

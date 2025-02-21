@@ -40,7 +40,7 @@ TEST_CASE("Single Threaded basic case.") {
 }
 
 TEST_CASE("Multi Threaded basic case.") {
-  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 2))));
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
   using T = transaction<int, 2>;
   std::vector<std::thread> threads;
   transaction_t<long long unsigned, T> tval = 0;
@@ -65,7 +65,7 @@ TEST_CASE("Multi Threaded basic case.") {
 }
 
 TEST_CASE("Multi Threaded recursive case.") {
-  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 2))));
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
   using T = transaction<int, 3>;
   std::vector<std::thread> threads;
   transaction_t<long long unsigned, T> tval = 0;
@@ -96,7 +96,7 @@ TEST_CASE("Multi Threaded recursive case.") {
 }
 
 TEST_CASE("Multi Threaded multi transactions.") {
-  auto sleep_for = GENERATE(take(20, chunk(2, random(0, 30))));
+  auto sleep_for = GENERATE(take(20, chunk(2, random(0, 3))));
   std::atomic<bool> FAILED = false;
   using T = transaction<int, 4>;
   using T2 = transaction<int, 5>;
@@ -165,7 +165,7 @@ TEST_CASE("Class member access multi threaded.") {
 
   using T = transaction<int, 7>;
 
-  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 10))));
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
   transaction_t<MyClass, T> tval = {};
 
   std::vector<std::thread> threads;
@@ -196,9 +196,9 @@ TEST_CASE("Class function member access multi threaded.") {
     long long unsigned getX() const { return x; }
   };
 
-  using T = transaction<int, 7>;
+  using T = transaction<int, 8>;
 
-  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 10))));
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
   transaction_t<MyClass, T> tval = {};
 
   std::vector<std::thread> threads;
@@ -229,9 +229,9 @@ TEST_CASE("Class complex member function multi threaded") {
     long long unsigned getNewY() const { return x + y; }
   };
 
-  using T = transaction<int, 8>;
+  using T = transaction<int, 9>;
 
-  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 10))));
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
   transaction_t<MyClass, T> tval = {};
 
   std::vector<std::thread> threads;
@@ -259,15 +259,14 @@ TEST_CASE("Class complex member function multi threaded") {
   std::ranges::for_each(threads, [](auto &thread) { thread.join(); });
   std::atomic_thread_fence(std::memory_order_seq_cst);
 
-  std::function<int(int)> fib = [&](int n) -> int {
-    switch (n) {
-      case 0:
-        return 0;
-      case 1:
-        return 1;
-      default:
-        return fib(n - 1) + fib(n - 2);
+  constexpr auto fib = [](int n) consteval {
+    unsigned long long d0 = 0;
+    unsigned long long d1 = 1;
+    for (int i : std::views::iota(0, n)) {
+      d1 = d0 + d1;
+      d0 = d1 - d0;
     }
+    return d0;
   };
 
   REQUIRE((**tval).x == fib(THREADS));
@@ -275,9 +274,9 @@ TEST_CASE("Class complex member function multi threaded") {
 }
 
 TEST_CASE("Multi threaded sequential consistency") {
-  using T = transaction<int, 9>;
+  using T = transaction<int, 10>;
 
-  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 10))));
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
   transaction_t<long long unsigned, T> tval1 = 0;
   transaction_t<long long unsigned, T> tval2 = 1;
 
