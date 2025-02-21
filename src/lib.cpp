@@ -6,7 +6,7 @@ module;
 #include <optional>
 #include <cassert>
 #include <cstdlib>
-export module STMCXX;
+export module STMXX;
 import Util;
 export import :Transaction;
 export import :TransactionVal;

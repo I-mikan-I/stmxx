@@ -1,4 +1,4 @@
-# STMCXX
+# STMXX
 ## A Modern C++ Software Transactional Memory Implementation
 
 ### Features

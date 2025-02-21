@@ -10,7 +10,7 @@ module;
 #include <optional>
 #include <cassert>
 #include <cstdlib>
-export module STMCXX:Transaction;
+export module STMXX:Transaction;
 import Util;
 
 export template <typename T, long long N = 0>

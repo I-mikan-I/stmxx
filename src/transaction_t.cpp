@@ -9,7 +9,7 @@ module;
 #include <cstdlib>
 #include <iostream>
 #include <ostream>
-export module STMCXX:TransactionVal;
+export module STMXX:TransactionVal;
 import :Transaction;
 import Util;
 

@@ -1,4 +1,5 @@
 module;
+#include <ranges>
 #include <algorithm>
 #include <functional>
 #include <atomic>
@@ -7,7 +8,7 @@ module;
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
 export module Test;
-import STMCXX;
+import STMXX;
 using namespace std::chrono_literals;
 
 #if THREAD_SANITIZER
@@ -192,9 +193,7 @@ TEST_CASE("Class function member access multi threaded.") {
   struct MyClass {
     long long unsigned x;
     long long unsigned y;
-    long long unsigned getX() const {
-      return x;
-    }
+    long long unsigned getX() const { return x; }
   };
 
   using T = transaction<int, 7>;
@@ -221,4 +220,87 @@ TEST_CASE("Class function member access multi threaded.") {
   std::atomic_thread_fence(std::memory_order_seq_cst);
   REQUIRE((**tval).x == THREADS);
   REQUIRE((**tval).y == THREADS * 2 - 2);
+}
+
+TEST_CASE("Class complex member function multi threaded") {
+  struct MyClass {
+    long long unsigned x = 0;
+    long long unsigned y = 1;
+    long long unsigned getNewY() const { return x + y; }
+  };
+
+  using T = transaction<int, 8>;
+
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 10))));
+  transaction_t<MyClass, T> tval = {};
+
+  std::vector<std::thread> threads;
+
+  for (int i = 0; i < THREADS; i++) {
+    threads.emplace_back([&, i] {
+      return T::start([&] {
+        auto y = (tval->*&MyClass::getNewY)();
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_for[i]));
+        if (y) {
+          auto updated = (*tval).transform([&](MyClass cls) {
+            cls.x = cls.y;
+            cls.y = *y;
+            return cls;
+          });
+          if (updated) {
+            tval = std::move(*updated);
+          }
+        }
+        return 0;
+      });
+    });
+  }
+
+  std::ranges::for_each(threads, [](auto &thread) { thread.join(); });
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+
+  std::function<int(int)> fib = [&](int n) -> int {
+    switch (n) {
+      case 0:
+        return 0;
+      case 1:
+        return 1;
+      default:
+        return fib(n - 1) + fib(n - 2);
+    }
+  };
+
+  REQUIRE((**tval).x == fib(THREADS));
+  REQUIRE((**tval).y == fib(THREADS + 1));
+}
+
+TEST_CASE("Multi threaded sequential consistency") {
+  using T = transaction<int, 9>;
+
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 10))));
+  transaction_t<long long unsigned, T> tval1 = 0;
+  transaction_t<long long unsigned, T> tval2 = 1;
+
+  auto range = (std::views::iota(0, THREADS) | std::views::transform([&](int i) -> std::thread {
+                  return std::thread([&] {
+                    return T::start([&] {
+                      auto val1 = *tval1;
+                      auto val2 = *tval2;
+                      if (val1 && val2) {
+                        assert(*val1 == !*val2);
+                        tval1 = static_cast<long long unsigned>(!*val1);
+                        tval2 = static_cast<long long unsigned>(!*val2);
+                      }
+                      return 0;
+                    });
+                  });
+                }));
+  auto threads =
+      std::ranges::fold_left(std::move(range), std::vector<std::thread>(), [](auto vec, auto t) {
+        vec.push_back(std::move(t));
+        return vec;
+      });
+  for (auto &t : threads) {
+    t.join();
+  }
 }
