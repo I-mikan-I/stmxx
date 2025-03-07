@@ -303,3 +303,34 @@ TEST_CASE("Multi threaded sequential consistency") {
     t.join();
   }
 }
+
+TEST_CASE("New allocated tval") {
+  using T = transaction<int, 10>;
+
+  auto sleep_for = GENERATE(take(10, chunk(THREADS, random(0, 3))));
+  transaction_t<long long unsigned, T> &tval1 = *new transaction_t<long long unsigned, T>(0);
+  transaction_t<long long unsigned, T> tval2 = 1;
+
+  auto range = (std::views::iota(0, THREADS) | std::views::transform([&](int i) -> std::thread {
+                  return std::thread([&] {
+                    return T::start([&] {
+                      auto val1 = *tval1;
+                      auto val2 = *tval2;
+                      if (val1 && val2) {
+                        assert(*val1 == !*val2);
+                        tval1 = static_cast<long long unsigned>(!*val1);
+                        tval2 = static_cast<long long unsigned>(!*val2);
+                      }
+                      return 0;
+                    });
+                  });
+                }));
+  auto threads =
+      std::ranges::fold_left(std::move(range), std::vector<std::thread>(), [](auto vec, auto t) {
+        vec.push_back(std::move(t));
+        return vec;
+      });
+  for (auto &t : threads) {
+    t.join();
+  }
+}
